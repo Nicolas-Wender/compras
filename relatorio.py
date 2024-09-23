@@ -245,13 +245,11 @@ class api_bling:
         return self.cache[loja]
 
 
-#  função para atualizar o saldo de estoque dos produtos
+#  requisitando saldo de estoque
 def get_saldo_estoque(loja: str, lista_produtos: List[str]) -> List[Dict[str, Any]]:
-    with st.spinner(f"Atualizando saldo de estoque..."):
+    with st.spinner(f"Atualizando saldo de estoque {loja}..."):
         api = api_bling()
         dados_estoque = []
-
-        print(len(lista_produtos))
 
         for i in stqdm(range(0, len(lista_produtos), 5)):
             time.sleep(0.1)
@@ -298,6 +296,7 @@ def get_saldo_estoque(loja: str, lista_produtos: List[str]) -> List[Dict[str, An
                             "full_ml_proteloja": saldo_estoques[9738790725],
                             "full_ml_vendolandia": saldo_estoques[14197230585],
                             "full_ml_vendolandia2": saldo_estoques[14886665514],
+                            "loja": loja,
                         }
                     )
 
@@ -307,13 +306,29 @@ def get_saldo_estoque(loja: str, lista_produtos: List[str]) -> List[Dict[str, An
         return dados_estoque
 
 
-def atualizar_saldo_estoque(
-    loja: str, lista_id_produtos: List[str]
-) -> List[Dict[str, Any]]:
-    df_saldo_estoque_bling = pd.DataFrame(get_saldo_estoque(loja, lista_id_produtos))
+#  atualizar saldo de estoque
+def atualizar_saldo_estoque(lista_id_produtos: pd.DataFrame) -> List[Dict[str, Any]]:
+    df_saldo_estoque_bling_proteloja = pd.DataFrame(
+        get_saldo_estoque(
+            "proteloja",
+            lista_id_produtos[lista_id_produtos["loja"] == "proteloja"]["id"].array,
+        )
+    )
 
-    if not df_saldo_estoque_bling.empty:
-        df_saldo_estoque_bling.fillna(0, inplace=True)
+    df_saldo_estoque_bling_vendolandia = pd.DataFrame(
+        get_saldo_estoque(
+            "vendolandia",
+            lista_id_produtos[lista_id_produtos["loja"] == "vendolandia"]["id"].array,
+        )
+    )
+
+    df_concatenado = pd.concat(
+        [df_saldo_estoque_bling_proteloja, df_saldo_estoque_bling_vendolandia],
+        ignore_index=True,
+    )
+
+    if not df_concatenado.empty:
+        df_concatenado.fillna(0, inplace=True)
 
         schema = [
             bigquery.SchemaField("id", "STRING"),
@@ -324,15 +339,16 @@ def atualizar_saldo_estoque(
             bigquery.SchemaField("full_ml_proteloja", "FLOAT"),
             bigquery.SchemaField("full_ml_vendolandia", "FLOAT"),
             bigquery.SchemaField("full_ml_vendolandia2", "FLOAT"),
+            bigquery.SchemaField("loja", "STRING"),
         ]
         table_id = f"integracao-414415.data_ptl.saldo_estoque_bling"
 
-        send_bigquery(df_saldo_estoque_bling, table_id, schema)
+        send_bigquery(df_concatenado, table_id, schema)
 
 
 #  requisitando pedidos de compra
 def get_pedidos_compra_bling(loja: str) -> List[Dict[str, Any]]:
-    with st.spinner(f"Requisitando pedidos de compra..."):
+    with st.spinner(f"Requisitando pedidos de compra {loja}..."):
         api = api_bling()
         id_pedidos = []
         dados_pedidos = []
@@ -407,6 +423,7 @@ def get_pedidos_compra_bling(loja: str) -> List[Dict[str, Any]]:
                                 "quantidade": quantidade,
                                 "id_produto": id_produto,
                                 "sku": sku,
+                                "loja": loja,
                             }
                         )
 
@@ -416,6 +433,7 @@ def get_pedidos_compra_bling(loja: str) -> List[Dict[str, Any]]:
     return dados_pedidos
 
 
+# requisitando e formando relatorio
 def requisitando_relatorio():
     with st.spinner(f"Requisitando banco de dados..."):
         #  requisitando banco de dados e dataframes
@@ -457,9 +475,8 @@ def requisitando_relatorio():
     df_produtos_bling = df_produtos_bling[
         ~df_produtos_bling["nome"].str.contains("CONSUMIVEL", case=False, na=False)
     ]
-    df_produtos_bling = df_produtos_bling[df_produtos_bling["loja"] == "proteloja"]
 
-    atualizar_saldo_estoque("proteloja", df_produtos_bling["id"].array)
+    atualizar_saldo_estoque(df_produtos_bling)
 
     saldo_estoque_bling = query_bigquery(
         "SELECT id, saldo_fisico_total, estoque_matriz, full_amazon, full_mgl_proteloja, full_ml_proteloja, full_ml_vendolandia, full_ml_vendolandia2 FROM `integracao-414415.data_ptl.saldo_estoque_bling`"
@@ -473,8 +490,16 @@ def requisitando_relatorio():
     df_saldo_estoque_bling["id"] = df_saldo_estoque_bling["id"].astype(str)
 
     # requisitando e transformando pedidos de compra
-    df_compras = pd.DataFrame(get_pedidos_compra_bling("PROTELOJA"))
-    df_compras["data_prevista"] = pd.to_datetime(df_compras["data_prevista"])
+    df_compras_proteloja = pd.DataFrame(get_pedidos_compra_bling("proteloja"))
+    df_compras_vendolandia = pd.DataFrame(get_pedidos_compra_bling("vendolandia"))
+
+    df_compras = pd.concat(
+        [df_compras_proteloja, df_compras_vendolandia], ignore_index=True
+    )
+
+    df_compras["data_prevista"] = pd.to_datetime(
+        df_compras["data_prevista"], errors="coerce"
+    )
     df_min_dates = df_compras.groupby("id_produto")["data_prevista"].min().reset_index()
     df_min = pd.merge(df_min_dates, df_compras, on=["id_produto", "data_prevista"])
     df_resultado_compras = df_min[["id_produto", "quantidade", "data_prevista"]]
@@ -509,7 +534,7 @@ def requisitando_relatorio():
     )
 
     df.drop(
-        ["id_produto", "id_fornecedor", "loja", "variacao", "estrutura"],
+        ["id_produto", "id_fornecedor", "variacao", "estrutura"],
         axis=1,
         inplace=True,
     )
@@ -585,16 +610,49 @@ df_view = st.session_state["df"]
 # streamlit
 st.title("Relatório de Estoque e Compras")
 
-nome_selecionado = st.multiselect(
-    "Filtre por Fornecedor",
-    options=df_view["nome fornecedor"].unique(),
-    default=[],
+col1, col2, col3 = st.columns([1, 2, 2])
+
+with col1:
+    loja = st.selectbox(
+        "Loja",
+        ("proteloja", "vendolandia", "todas"),
+    )
+
+with col2:
+    nome_selecionado = st.multiselect(
+        "Filtre por Fornecedor",
+        options=df_view["nome fornecedor"].unique(),
+        default=[],
+    )
+
+with col3:
+    tags_selecionado = st.multiselect(
+        "Filtre por Tags",
+        options=pd.Series(
+            [item for sublist in df_view["status"] for item in sublist]
+        ).unique(),
+        default=[],
+    )
+
+df_view_filtrado_loja = df_view[df_view["loja"] == loja] if loja != "todas" else df_view
+
+df_view_filtrado_fornecedor = (
+    df_view_filtrado_loja[
+        df_view_filtrado_loja["nome fornecedor"].isin(nome_selecionado)
+    ]
+    if len(nome_selecionado) > 0
+    else df_view_filtrado_loja
 )
 
+
 df_view_filtrado = (
-    df_view[(df_view["nome fornecedor"].isin(nome_selecionado))]
-    if len(nome_selecionado) > 0
-    else df_view
+    df_view_filtrado_fornecedor[
+        df_view_filtrado_fornecedor["status"].apply(
+            lambda lista: any(item in lista for item in tags_selecionado)
+        )
+    ]
+    if len(tags_selecionado) > 0
+    else df_view_filtrado_fornecedor
 )
 
 st.data_editor(
@@ -610,9 +668,7 @@ st.data_editor(
             help="",
             width="small",
         ),
-        "nome": st.column_config.Column(
-            help="", width="medium"
-        ),
+        "nome": st.column_config.Column(help="", width="medium"),
         "50 dias": st.column_config.Column(
             help="",
             width="small",
@@ -678,6 +734,10 @@ st.data_editor(
             help="",
             width="large",
         ),
+        "loja": st.column_config.Column(
+            help="",
+            width="small",
+        ),
     },
     disabled=[
         "sku",
@@ -698,6 +758,7 @@ st.data_editor(
         "entrega prevista",
         "dias de estoque",
         "status",
+        "loja",
     ],
     hide_index=True,
 )
