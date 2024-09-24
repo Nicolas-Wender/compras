@@ -763,4 +763,3 @@ st.data_editor(
     hide_index=True,
 )
 
-# na coluna, data prevista, do tipo datetime, mude o zero por "", e coloque o valor no formato "%Y/%m/%d"

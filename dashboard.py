@@ -11,7 +11,7 @@ from google.cloud import bigquery
 from cryptography.fernet import Fernet
 import json
 from typing import List, Any, Dict
-from stqdm import stqdm
+from tqdm import tqdm
 import numpy as np
 
 # setup
@@ -465,3 +465,5 @@ for index, row in df.iterrows():
 
     if row["dias de estoque"] <= 7:
         df.at[index, "status"].append("verificar compras")
+
+
