@@ -644,7 +644,6 @@ df_view_filtrado_fornecedor = (
     else df_view_filtrado_loja
 )
 
-
 df_view_filtrado = (
     df_view_filtrado_fornecedor[
         df_view_filtrado_fornecedor["status"].apply(
@@ -762,4 +761,3 @@ st.data_editor(
     ],
     hide_index=True,
 )
-

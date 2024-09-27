@@ -41,6 +41,6 @@ if not check_password():
     st.stop()  # Do not continue if check_password is not True.
 
 pg = st.navigation(
-    [st.Page("relatorio.py"), st.Page("calculadora.py"), st.Page("dashboard.py")]
+    [st.Page("dashboard.py"), st.Page("relatorio.py"), st.Page("calculadora.py") ]
 )
 pg.run()
