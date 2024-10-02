@@ -1,6 +1,6 @@
 import time
 import base64
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import json
 import logging
 import requests
@@ -653,6 +653,23 @@ with col1:
         ("proteloja", "vendolandia", "todas"),
     )
 
+with col2:
+    # Data atual
+    today = datetime.now().date()
+    thirty_days_ago = today - timedelta(days=30)
+
+    # Componente de seleção de datas no formato brasileiro
+    d = st.date_input(
+        "Filtro por data",
+        (thirty_days_ago, today),
+        thirty_days_ago,
+        today,
+        format="DD/MM/YYYY",  # Formato brasileiro de data
+    )
+
+    datas_formatadas = [data.strftime("%Y-%m-%d") for data in d]
+    resultado = f"'{datas_formatadas[0]}' AND '{datas_formatadas[1]}'"
+
 df = st.session_state["df_dash"]
 
 df_filtrado = df[df["loja"] == loja] if loja != "todas" else df
@@ -686,7 +703,7 @@ vendas_custo_tempo = query_bigquery(
         FROM 
             `integracao-414415.data_ptl.vendas_geral_staging`
         WHERE 
-            data >= DATE_TRUNC(CURRENT_DATE(), MONTH) AND data <= DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)
+            data BETWEEN {resultado}
         )
         SELECT 
             data,
@@ -729,8 +746,7 @@ tabela_curva_abc = query_bigquery(
         FROM 
             `integracao-414415.data_ptl.vendas_geral_staging`
         WHERE
-            data > DATE_TRUNC(CURRENT_DATE(), MONTH)
-            AND data < DATE_TRUNC(DATE_ADD(CURRENT_DATE(), INTERVAL 1 MONTH), MONTH)
+            data BETWEEN {resultado}
             AND loja IN {tupla_proteloja if loja == 'proteloja' else tupla_vendolandia }
             AND situacao != "12"
         GROUP BY 
